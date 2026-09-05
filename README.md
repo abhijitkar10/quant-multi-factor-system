@@ -4,8 +4,15 @@ Recreates the institutional **multi-factor trading architecture** described in t
 *"What Nobody Tells You About Being a Quant"* (The Quant Insider) as a solo, laptop-scale
 project — a data-engineering + quant-finance portfolio piece.
 
-**Status:** Phases 0–4 built and running. 50 tests passing, 9 dependencies.
-Latest backtest: **IR 0.66**, 5.65% net annualised (2018→2026, 41 names).
+**Status:** Phases 0–4 built and running. 59 tests passing, 9 dependencies.
+
+Universe is real point-in-time index membership reconstructed from Wikipedia revision
+history — 700 tickers, 503 current and 200 departed — so the backtest is not run on names
+selected with hindsight. Latest backtest over 604 names with price history:
+**IR 0.02, +0.15% net annualised.**
+
+That number was **0.66 on a hand-picked 41-name universe**. The difference was survivorship
+bias, and finding it is the point: see [docs/build-log.md](docs/build-log.md).
 
 ## Quickstart
 
@@ -49,7 +56,7 @@ uv run qmf point-in-time TWTR        # why membership needs a date
 
 | Phase | Status | Where |
 |---|---|---|
-| 0 — point-in-time universe | **done** | `src/qmf/universe.py` |
+| 0 — point-in-time universe | **done** | `src/qmf/universe.py`, `src/qmf/data/constituents.py` |
 | 1 — data loaders | **done** | `src/qmf/data/prices.py` |
 | 1b — security matching (OpenFIGI) | **done** | `src/qmf/data/security_master.py` |
 | 1c — data auditing | **done** | `src/qmf/data/audit.py` |
@@ -59,8 +66,8 @@ uv run qmf point-in-time TWTR        # why membership needs a date
 | 4 — performance attribution | **done** | `src/qmf/portfolio.py` |
 | 5–6 — Spark, cloud, kdb+ | planned | — |
 
-Current lake after a full `phase1` run: 87,756 price rows across 41 names (2018→today),
-a 43-name universe with real membership intervals, and a 100%-matched security master.
+Current lake: 1,239,426 price rows across 604 names (2018→today), a 700-ticker
+point-in-time universe, and a security master matched via OpenFIGI.
 
 ## Docs
 - [Feature plan](docs/feature-plan.md) — architecture, phased roadmap, scope, interview map

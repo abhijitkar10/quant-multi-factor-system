@@ -233,3 +233,73 @@ specific number here would have been a red flag that something was leaking.
 ### Next
 Phase 5 — Spark/Delta at scale. Still true that a real point-in-time constituent source
 would buy more credibility than any further modelling.
+
+## 2026-09-06 (final) — real universe, and the result it destroyed
+
+### The universe is now evidence, not hindsight
+`qmf universe --rebuild` reconstructs membership from Wikipedia's **revision history**:
+fetch the constituents page as it existed on a quarterly grid of past dates, and contiguous
+runs of snapshots become membership intervals.
+
+43 hand-picked names → **700 tickers, 703 intervals**. 503 still members, 200 departed,
+3 that left and rejoined. ~505 members at any past date, which matches the index's true
+count once dual share classes (GOOG/GOOGL, FOX/FOXA) are counted.
+
+The first attempt indexed page tables by position and broke immediately — Wikipedia has
+since deleted the change-log table entirely. Tables are now located by content.
+
+### The ingest halted, and the diagnosis mattered more than the fix
+703 tickers, 99 failed downloads, coverage 86%, feed halted. Some failures looked wrong —
+MMC and BK trade daily — so throttling seemed likely. It was not:
+
+- a control ticker fetched fine → not rate-limited
+- clearing yfinance's timezone cache changed nothing → not a stale cache
+- the vendor returns an explicit `404 Quote not found`
+
+Then the measurement that settled it: **all 99 failures are names the universe says left the
+index; zero current members failed.** The suspicion was wrong because the corporate actions
+happened after the author's knowledge cutoff — the data knew, memory did not.
+
+So the check was measuring the wrong thing: gating on history a free vendor cannot serve for
+companies that no longer exist. Coverage now gates on names still in the index; departed
+names get a non-critical `delisted_coverage` check. Not a relaxed threshold — a missing
+*current* name still halts the feed, and a test pins that.
+
+Ingest now: **1,239,426 rows**, coverage 100%, delisted coverage 49.7% (98 of 197 departed
+names have history, 99 do not).
+
+### The honest result
+
+| | 41 hand-picked names | 604 real point-in-time names |
+|---|---|---|
+| information ratio | **0.66** | **0.02** |
+| net return (ann.) | +5.65% | +0.15% |
+| turnover (ann.) | 533% | 1084% |
+| max drawdown | −11.27% | −15.00% |
+
+**The IR of 0.66 was survivorship bias.** A universe of 41 companies that are large *today*
+is selected on outcome, and it flattered the strategy by roughly the entire result. On a
+universe chosen without hindsight the edge is indistinguishable from zero.
+
+Signal ICs on the real universe: momentum +0.0202 (holds up), reversal +0.0072 (improved,
+more names means more cross-sectional dispersion), low_vol +0.0007 (was −0.0096; now
+indistinguishable from noise).
+
+Attribution of the +0.48% gross: momentum +2.43%, reversal +0.83%, low_vol −1.46%,
+specific −1.32%. Momentum still earns; low_vol now *destroys* value because its IC sits at
+zero, so the trailing-IC weight is fitting noise and flipping sign on it.
+
+### What this is worth
+This is the most valuable thing the project has produced. A pipeline that reports IR 0.66 on
+a rigged universe is worse than useless — it is confidently wrong. The same pipeline
+reporting 0.02 on an honest one is a working instrument. The system did not get worse; the
+measurement got truthful.
+
+Deliberately **not** tuned afterwards. Dropping low_vol, or weighting by an IC t-statistic
+instead of a raw IC, would very likely lift the number — and doing that after seeing the
+result is how backtests get overfitted. Recorded as a hypothesis to test properly, not a
+change to make now.
+
+Remaining honest limitation: the universe is free of survivorship bias but the price history
+is not, because 99 departed names have no history to load. The free vendor is now the
+binding constraint, not the universe.
