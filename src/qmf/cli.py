@@ -13,7 +13,7 @@ from qmf import config, storage
 from qmf import factors as fac
 from qmf import portfolio as pf
 from qmf import universe as uni
-from qmf.data import prices
+from qmf.data import constituents, prices
 from qmf.data import security_master as sm
 from qmf.data.audit import AuditReport, DataAuditError
 
@@ -46,13 +46,22 @@ def _render_report(report: AuditReport) -> None:
 @app.command()
 def universe(
     as_of: str = typer.Option(None, help="ISO date; defaults to today."),
-    rebuild: bool = typer.Option(False, help="Rebuild the table from the seed CSV."),
+    rebuild: bool = typer.Option(False, help="Rebuild the universe table."),
+    source: str = typer.Option("wikipedia", help="wikipedia | seed"),
 ) -> None:
     """Show the point-in-time tradable universe."""
     config.ensure_dirs()
     if rebuild:
-        uni.build_universe()
-        console.print("[green]rebuilt[/] universe from seed")
+        if source == "wikipedia":
+            console.print("fetching Wikipedia revision snapshots (this takes a minute)…")
+            built = constituents.build(config.START_DATE, date.today())
+            console.print(
+                f"[green]rebuilt[/] universe from Wikipedia revisions: "
+                f"{built.height} intervals over {built['ticker'].n_unique()} tickers"
+            )
+        else:
+            uni.build_universe()
+            console.print("[green]rebuilt[/] universe from seed")
 
     d = date.fromisoformat(as_of) if as_of else date.today()
     members = uni.universe_as_of(d)
