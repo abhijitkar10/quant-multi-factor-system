@@ -93,6 +93,8 @@ def test_costs_open_a_gap_between_paper_and_real():
             "cost": [0.001, 0.0],
             "net": [0.009, 0.02],
             "turnover": [1.0, 0.0],
+            **{f"attr_{s}": [0.0, 0.0] for s in SIGNALS},
+            "attr_specific": [0.01, 0.02],
         }
     )
     stats = summarise(curve)
@@ -111,7 +113,7 @@ def test_backtest_produces_a_curve_and_charges_only_on_rebalance():
     )
     curve, stats = backtest(panel, rets, prices, rebalance=10)
     assert curve.height == 40
-    assert set(curve.columns) == {"dt", "gross", "cost", "net", "turnover"}
+    assert {"dt", "gross", "cost", "net", "turnover"} <= set(curve.columns)
     assert (curve["cost"] >= 0).all()
     # Costs land only on rebalance days, not every day.
     assert (curve["turnover"] > 0).sum() <= 4
@@ -131,3 +133,22 @@ def test_rebalance_day_does_not_earn_its_own_return():
     )
     curve, _ = backtest(panel, rets, prices, rebalance=1)
     assert curve["gross"][0] == 0.0
+
+
+def test_attribution_sums_back_to_gross():
+    """Factor contributions plus the specific residual must reconstruct the gross return.
+
+    This identity is what catches an off-by-one between exposures and factor returns.
+    """
+    panel, rets = _panel_and_rets(n_dates=30)
+    prices = pl.DataFrame(
+        [
+            {"ticker": t, "dt": d, "adj_close": 100.0 + i * 0.5}
+            for t in ("A", "B", "C", "D", "E", "F")
+            for i, d in enumerate(sorted(panel["dt"].unique()))
+        ]
+    )
+    curve, stats = backtest(panel, rets, prices, rebalance=5)
+    parts = curve.select([f"attr_{s}" for s in SIGNALS] + ["attr_specific"]).sum_horizontal()
+    assert np.allclose(parts.to_numpy(), curve["gross"].to_numpy(), atol=1e-12)
+    assert "from_specific" in stats

@@ -192,3 +192,44 @@ works in equities. The pipeline is honest; the experiment is still small.
 ### Next
 Phase 4 proper — return attribution (factor vs specific vs cost). Phase 5 — Spark/Delta at
 scale. A real point-in-time constituent source would do more for credibility than either.
+
+## 2026-09-06 (later still) — published, then Phase 4: attribution
+
+Repo is public: https://github.com/abhijitkar10/quant-multi-factor-system
+
+Attribution folded into the existing backtest loop rather than a new module. Each day the
+book's factor exposure is `x(t) = w . B(t)`, and the contribution of factor k to the move
+realised over `(t -> t+1)` is `x_k(t) * f_k(t)`. Whatever gross return is left over is the
+specific part.
+
+The indexing is the whole difficulty: `f(t)` comes from regressing `fwd_ret(t)` on `z(t)`,
+so it explains the return realised on day `t+1`, and the exposures it multiplies must be the
+ones the book actually held at the close of `t`. Getting that off by one day would silently
+manufacture or destroy performance, so the test asserts the identity
+`sum(factor contributions) + specific == gross` exactly.
+
+### Where the 5.81% gross came from
+
+| source | ann. contribution |
+|---|---|
+| momentum | +4.61% |
+| low_vol | +1.31% |
+| reversal | +0.39% |
+| specific | −0.49% |
+| **gross** | **+5.81%** |
+
+Momentum is 79% of the return, which matches its being the only signal with a real IC.
+
+Low-vol contributing **positively** is the IC weighting doing its job: the signal was paid
+−0.0096, so the trailing-IC weight holds it short, and a negatively-paid factor held short
+is a positive contribution. That is the difference between the equal-weight blend (IR −0.02)
+and this one (IR 0.66) shown at the factor level.
+
+Specific is ≈0 and slightly negative, which is the correct result rather than a
+disappointing one: the alpha is built purely from factor scores, so there is no
+name-specific view in it, and there should be no name-specific return. A large positive
+specific number here would have been a red flag that something was leaking.
+
+### Next
+Phase 5 — Spark/Delta at scale. Still true that a real point-in-time constituent source
+would buy more credibility than any further modelling.

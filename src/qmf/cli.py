@@ -159,7 +159,8 @@ def backtest(
         "ann_turnover",
     }
     for k, v in stats.items():
-        table.add_row(k, f"{v:.2%}" if k in pct else f"{v:,.2f}")
+        as_pct = k in pct or k.startswith("from_")
+        table.add_row(k, f"{v:.2%}" if as_pct else f"{v:,.2f}")
     console.print(table)
 
 

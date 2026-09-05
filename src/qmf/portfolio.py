@@ -124,6 +124,9 @@ def backtest(
         tickers,
     )
 
+    # f(t) is the factor return realised over (t -> t+1), so the move on day i is
+    # explained by f(i-1) applied to the exposures the book had at the close of i-1.
+    fret_m = pl.DataFrame({"dt": dates}).join(rets, on="dt", how="left").select(SIGNALS).to_numpy()
     factor_cov = covariance(rets)
     spec = specific_risk(panel, rets)
     spec_map = dict(zip(spec["ticker"], spec["specific_var"], strict=True))
@@ -138,6 +141,13 @@ def backtest(
         # be look-ahead, which is the exact bias this system is built to avoid.
         r = float(np.nansum(w * np.nan_to_num(ret_m[i])))
 
+        # Attribution: how much of today's move came from the factor bets we meant to
+        # make, and how much is specific -- the part that is either skill or noise.
+        contrib = np.zeros(len(SIGNALS))
+        if i:
+            exposure = w @ np.nan_to_num(expo_m[i - 1])
+            contrib = exposure * np.nan_to_num(fret_m[i - 1])
+
         turnover = 0.0
         if i % rebalance == 0:
             a, b = alpha_m[i], expo_m[i]
@@ -150,10 +160,25 @@ def backtest(
                 w = target
 
         cost = turnover * cost_bps / 1e4
-        rows.append({"dt": d, "gross": r, "cost": cost, "net": r - cost, "turnover": turnover})
+        rows.append(
+            {"dt": d, "gross": r, "cost": cost, "net": r - cost, "turnover": turnover}
+            | {f"attr_{s}": float(c) for s, c in zip(SIGNALS, contrib, strict=True)}
+            | {"attr_specific": r - float(contrib.sum())}
+        )
 
     curve = pl.DataFrame(rows).sort("dt")
     return curve, summarise(curve, rebalance)
+
+
+def attribution(curve: pl.DataFrame, signals: list[str] = SIGNALS) -> dict:
+    """Annualised split of the gross return into factor bets plus a specific residual.
+
+    By construction the parts sum back to gross -- that identity is the check that the
+    exposure and factor-return indices are lined up rather than off by a day.
+    """
+    parts = {s: curve[f"attr_{s}"].mean() * TRADING_DAYS for s in signals}
+    parts["specific"] = curve["attr_specific"].mean() * TRADING_DAYS
+    return parts
 
 
 def summarise(curve: pl.DataFrame, rebalance: int = REBALANCE_DAYS) -> dict:
@@ -173,7 +198,7 @@ def summarise(curve: pl.DataFrame, rebalance: int = REBALANCE_DAYS) -> dict:
         "ann_turnover": curve["turnover"].sum() / len(curve) * TRADING_DAYS,
         "max_drawdown": float((equity / np.maximum.accumulate(equity) - 1).min()),
         "days": len(curve),
-    }
+    } | {f"from_{k}": v for k, v in attribution(curve).items()}
 
 
 def run(**kwargs) -> tuple[pl.DataFrame, dict]:

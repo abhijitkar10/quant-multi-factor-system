@@ -4,7 +4,7 @@ Recreates the institutional **multi-factor trading architecture** described in t
 *"What Nobody Tells You About Being a Quant"* (The Quant Insider) as a solo, laptop-scale
 project — a data-engineering + quant-finance portfolio piece.
 
-**Status:** Phases 0–3 built and running. 49 tests passing, 9 dependencies.
+**Status:** Phases 0–4 built and running. 50 tests passing, 9 dependencies.
 Latest backtest: **IR 0.66**, 5.65% net annualised (2018→2026, 41 names).
 
 ## Quickstart
@@ -56,7 +56,7 @@ uv run qmf point-in-time TWTR        # why membership needs a date
 | storage — Delta Lake + time travel | **done** | `src/qmf/storage.py` |
 | 2 — signals / alpha / factor returns | **done** | `src/qmf/factors.py` |
 | 3 — risk model / construction / costs / backtest | **done** | `src/qmf/portfolio.py` |
-| 4 — performance attribution | planned | — |
+| 4 — performance attribution | **done** | `src/qmf/portfolio.py` |
 | 5–6 — Spark, cloud, kdb+ | planned | — |
 
 Current lake after a full `phase1` run: 87,756 price rows across 41 names (2018→today),
