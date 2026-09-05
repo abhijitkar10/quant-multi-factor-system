@@ -86,6 +86,7 @@ def audit_prices(
     df: pl.DataFrame,
     *,
     expected_tickers: list[str],
+    delisted_tickers: list[str] | None = None,
     expected_end: date | None = None,
     coverage_threshold: float = 0.95,
     extreme_move: float = 0.5,
@@ -112,8 +113,9 @@ def audit_prices(
     nonpositive = df.filter(pl.col("close") <= 0).height
     checks.append(Check("positive_prices", nonpositive == 0, float(nonpositive), 0.0))
 
-    expected = {t.upper() for t in expected_tickers}
     got = set(df["ticker"].unique().to_list())
+
+    expected = {t.upper() for t in expected_tickers}
     coverage = len(expected & got) / len(expected) if expected else 1.0
     missing = sorted(expected - got)
     checks.append(
@@ -125,6 +127,25 @@ def audit_prices(
             f"{len(missing)} missing: {', '.join(missing[:8])}" if missing else "complete",
         )
     )
+
+    # Names that have left the index are reported separately and never gate the feed. A
+    # free vendor genuinely cannot serve history for a company that no longer exists, so
+    # failing on it would conflate a vendor limitation with a data-quality problem. It is
+    # still surfaced, because it is precisely the survivorship bias we care about.
+    departed = {t.upper() for t in (delisted_tickers or [])} - expected
+    if departed:
+        recovered = len(departed & got) / len(departed)
+        checks.append(
+            Check(
+                "delisted_coverage",
+                True,
+                recovered,
+                None,
+                f"{len(departed & got)}/{len(departed)} departed names have history; "
+                f"{len(departed - got)} unavailable from this vendor",
+                critical=False,
+            )
+        )
 
     # Returns are computed on the adjusted close so splits do not masquerade as outliers.
     rets = df.sort(["ticker", "dt"]).with_columns(

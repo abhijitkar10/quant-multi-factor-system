@@ -102,11 +102,26 @@ def transform(df: pl.DataFrame) -> pl.DataFrame:
 
 
 def load(
-    tickers: list[str], start: date, end: date, *, mode: str = "overwrite"
+    tickers: list[str],
+    start: date,
+    end: date,
+    *,
+    required: list[str] | None = None,
+    mode: str = "overwrite",
 ) -> tuple[int, AuditReport]:
-    """Fetch, audit, and publish. A failing critical check halts before the write."""
+    """Fetch, audit, and publish. A failing critical check halts before the write.
+
+    ``required`` is the subset the vendor is genuinely expected to serve (defaults to all
+    of ``tickers``). The rest are reported but do not gate the feed.
+    """
+    required = list(required) if required is not None else list(tickers)
     df = transform(fetch(tickers, start, end))
-    report = audit_prices(df, expected_tickers=tickers, expected_end=min(end, date.today()))
+    report = audit_prices(
+        df,
+        expected_tickers=required,
+        delisted_tickers=tickers,
+        expected_end=min(end, date.today()),
+    )
     report.persist()
     if not report.passed:
         failed = ", ".join(c.name for c in report.failures if c.critical)

@@ -97,3 +97,33 @@ def test_report_frame_round_trips():
     frame = report.to_frame()
     assert frame.height == len(report.checks)
     assert set(frame.columns) >= {"table", "check", "passed", "critical", "run_at"}
+
+
+def test_delisted_names_are_reported_but_do_not_halt_the_feed():
+    """A vendor cannot serve history for a company that stopped existing.
+
+    That is a vendor limitation, not a data-quality failure, so it must not gate the feed --
+    but it must still be visible, because it is exactly the survivorship bias we track.
+    """
+    report = audit_prices(
+        panel(tickers=("AAA", "BBB")),
+        expected_tickers=["AAA", "BBB"],
+        delisted_tickers=["AAA", "BBB", "GONE1", "GONE2"],
+    )
+    assert report.passed  # departed names missing does not halt
+
+    delisted = check(report, "delisted_coverage")
+    assert not delisted.critical
+    assert delisted.value == 0.0
+    assert "2 unavailable" in delisted.detail
+
+
+def test_missing_current_name_still_halts_the_feed():
+    """The gate must stay real: a name that should exist and does not is still a failure."""
+    report = audit_prices(
+        panel(tickers=("AAA",)),
+        expected_tickers=["AAA", "BBB"],
+        delisted_tickers=["AAA", "BBB", "GONE"],
+    )
+    assert not report.passed
+    assert not check(report, "universe_coverage").passed

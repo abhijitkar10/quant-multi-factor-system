@@ -88,10 +88,16 @@ def ingest(
     start_d = date.fromisoformat(start) if start else config.START_DATE
     end_d = date.fromisoformat(end) if end else date.today()
     tickers = uni.tickers_active_between(start_d, end_d)
+    # Only names still in the index at the end of the window are ones the vendor must have.
+    required = uni.tickers_as_of(end_d)
 
-    console.print(f"ingesting [bold]{len(tickers)}[/] tickers, {start_d} → {end_d}")
+    console.print(
+        f"ingesting [bold]{len(tickers)}[/] tickers "
+        f"({len(required)} current + {len(tickers) - len(required)} departed), "
+        f"{start_d} → {end_d}"
+    )
     try:
-        rows, report = prices.load(tickers, start_d, end_d, mode=mode)
+        rows, report = prices.load(tickers, start_d, end_d, required=required, mode=mode)
     except DataAuditError as exc:
         console.print(f"[red]HALTED[/] {exc}")
         raise typer.Exit(code=1) from exc
