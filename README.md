@@ -4,7 +4,7 @@ Recreates the institutional **multi-factor trading architecture** described in t
 *"What Nobody Tells You About Being a Quant"* (The Quant Insider) as a solo, laptop-scale
 project — a data-engineering + quant-finance portfolio piece.
 
-**Status:** Phases 0–4 built and running. 59 tests passing, 9 dependencies.
+**Status:** Phases 0–4 built and running. 61 tests passing, 9 dependencies.
 
 Universe is real point-in-time index membership reconstructed from Wikipedia revision
 history — 700 tickers, 503 current and 200 departed — so the backtest is not run on names
@@ -13,6 +13,10 @@ selected with hindsight. Latest backtest over 604 names with price history:
 
 That number was **0.66 on a hand-picked 41-name universe**. The difference was survivorship
 bias, and finding it is the point: see [docs/build-log.md](docs/build-log.md).
+
+Over a held-out window (2023 onward) the same strategy scores IR 0.33 — a period effect, not
+skill. Both numbers are reported because quoting only the better one would repeat the
+selection mistake the universe fix corrected.
 
 ## Quickstart
 

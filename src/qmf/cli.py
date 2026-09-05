@@ -134,10 +134,12 @@ def match(as_of: str = typer.Option(None, help="ISO date for universe selection.
 
 
 @app.command()
-def factors() -> None:
+def factors(
+    weighting: str = typer.Option("mean", help="Signal weighting: mean | tstat"),
+) -> None:
     """Build signals, alpha, and factor returns from the price panel."""
     config.ensure_dirs()
-    panel, rets, ic = fac.build()
+    panel, rets, ic = fac.build(method=weighting)
 
     table = Table(title="signal skill (mean daily IC)", header_style="bold")
     for col in ("signal", "IC", "factor return (ann.)", "factor vol (ann.)"):
@@ -157,10 +159,16 @@ def factors() -> None:
 def backtest(
     rebalance: int = typer.Option(21, help="Trading days between rebalances."),
     cost_bps: float = typer.Option(3.0, help="Round-trip cost in bps of notional traded."),
+    since: str = typer.Option(None, help="Score only from this ISO date (held-out window)."),
 ) -> None:
     """Construct portfolios from alpha + risk, trade them, and score the result."""
     config.ensure_dirs()
     curve, stats = pf.run(rebalance=rebalance, cost_bps=cost_bps)
+    if since:
+        # Weights were built causally, so slicing the resulting return series by date is a
+        # valid out-of-sample score.
+        curve = curve.filter(pl.col("dt") >= date.fromisoformat(since))
+        stats = pf.summarise(curve, rebalance)
 
     table = Table(title="backtest", header_style="bold")
     table.add_column("metric")

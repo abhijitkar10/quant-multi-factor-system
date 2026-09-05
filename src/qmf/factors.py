@@ -92,8 +92,32 @@ def information_coefficient(panel: pl.DataFrame, signals: list[str] = SIGNALS) -
     return daily_ic(panel, signals).select([pl.col(s).mean().alias(s) for s in signals])
 
 
+def _expanding_weight(signal: str, method: str) -> pl.Expr:
+    """Expanding-window signal weight from the daily IC series.
+
+    ``mean`` is the average IC so far. ``tstat`` divides that by its standard error, which
+    is the point: a signal whose IC averages zero with a wide spread is noise, and raw-mean
+    weighting still hands it a weight whose sign flips around. Dividing by the standard
+    error shrinks a signal toward zero weight until its skill is measured consistently.
+    Absolute scale does not matter -- ``add_alpha`` normalises by the sum of magnitudes.
+    """
+    column = pl.col(signal)
+    n = column.cum_count()
+    total = column.cum_sum()
+    mean = total / n
+    if method == "mean":
+        return mean
+    if method != "tstat":
+        raise ValueError(f"unknown weighting method: {method!r}")
+    variance = ((column**2).cum_sum() - total**2 / n) / (n - 1)
+    return mean / (variance / n).sqrt()
+
+
 def trailing_ic(
-    panel: pl.DataFrame, signals: list[str] = SIGNALS, min_obs: int = 252
+    panel: pl.DataFrame,
+    signals: list[str] = SIGNALS,
+    min_obs: int = 252,
+    method: str = "mean",
 ) -> pl.DataFrame:
     """Expanding-window IC, lagged one day, for use as signal weights.
 
@@ -107,7 +131,7 @@ def trailing_ic(
         pl.col("dt"),
         *[
             pl.when(pl.col("_n") >= min_obs)
-            .then((pl.col(s).cum_sum() / pl.col(s).cum_count()).shift(1))
+            .then(_expanding_weight(s, method).shift(1))
             .alias(f"w_{s}")
             for s in signals
         ],
@@ -139,10 +163,10 @@ def covariance(rets: pl.DataFrame, signals: list[str] = SIGNALS) -> np.ndarray:
     return np.cov(rets.select(signals).drop_nulls().to_numpy(), rowvar=False)
 
 
-def build() -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
+def build(method: str = "mean") -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
     """Read prices, publish the factor panel and factor returns, return (panel, rets, ic)."""
     scored = zscore(compute_signals(read_delta("prices_daily")))
-    panel = add_alpha(scored, trailing_ic(scored))
+    panel = add_alpha(scored, trailing_ic(scored, method=method))
     rets = factor_returns(panel)
 
     write_delta(

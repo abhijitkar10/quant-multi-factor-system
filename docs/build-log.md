@@ -303,3 +303,44 @@ change to make now.
 Remaining honest limitation: the universe is free of survivorship bias but the price history
 is not, because 99 departed names have no history to load. The free vendor is now the
 binding constraint, not the universe.
+
+## 2026-09-06 — testing the t-stat hypothesis (rejected)
+
+The previous entry logged a hypothesis: weighting signals by a raw trailing IC fits noise
+when that IC sits at zero, so weighting by an IC *t-statistic* — the mean IC divided by its
+standard error — should suppress noise signals and lift the result.
+
+Since the idea was formed **after** seeing the result, the protocol was declared before
+running anything: in-sample 2018–2022, held out from 2023-01-01, and both rules reported on
+both windows regardless of which won.
+
+| weighting | full 2018→2026 IR | held out 2023+ IR | held-out turnover |
+|---|---|---|---|
+| mean IC | 0.02 | **0.33** | 1336% |
+| IC t-stat | 0.02 | **0.32** | 1396% |
+
+**The hypothesis is rejected.** T-stat weighting changed nothing — 0.32 against 0.33, with
+slightly higher turnover. The prediction that it "would very likely lift the number" was
+wrong.
+
+In hindsight the reason is visible: `add_alpha` normalises by the sum of weight magnitudes,
+so only the *relative* ordering of the three signals matters, and momentum has both the
+largest IC and the most consistent one. It wins under either rule, and rescaling the other
+two barely moves a normalised blend of three signals. The t-statistic would start to matter
+with many more signals, or with two of comparable mean IC and very different consistency —
+which is exactly the case the unit test constructs, and where it does separate them cleanly.
+
+### The more interesting number is the one that is not about weighting
+Both rules score IR ≈ 0.02 over the full period and ≈ 0.33 over 2023 onward. That gap is a
+**period effect, not skill**: these signals simply paid better in the back half of the
+sample. Quoting the 0.33 alone would be picking a window after seeing the answer, which is
+the same error as picking a universe after seeing the answer — the mistake this project
+already made once and corrected.
+
+So the standing result is unchanged: on an honest universe the edge is weak and
+period-dependent.
+
+### On keeping the losing code
+`--weighting tstat` stays, defaulting to `mean`. It is not speculative scaffolding: it is the
+apparatus that produced a documented negative result, and deleting it would make that claim
+unreproducible. Delete it if the finding ever stops mattering.

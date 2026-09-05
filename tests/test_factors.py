@@ -6,6 +6,7 @@ import numpy as np
 import polars as pl
 
 from qmf.factors import (
+    _expanding_weight,
     add_alpha,
     covariance,
     daily_ic,
@@ -117,3 +118,40 @@ def test_negative_ic_signal_is_held_short():
     out = add_alpha(scored, w).row(0, named=True)
     expected = (out["z_momentum"] - out["z_low_vol"]) / 2.0
     assert abs(out["alpha"] - expected) < 1e-12
+
+
+def test_tstat_weighting_shrinks_a_noisy_signal_relative_to_a_consistent_one():
+    """Two signals with the same mean IC but different consistency must not weigh equally."""
+    import numpy as np
+
+    n = 400
+    dates = [date(2024, 1, 1) + timedelta(days=i) for i in range(n)]
+    rng = np.random.default_rng(3)
+    steady = rng.normal(0.02, 0.01, n)  # same mean, tight spread
+    noisy = rng.normal(0.02, 0.50, n)  # same mean, wide spread
+
+    daily = pl.DataFrame({"dt": dates, "momentum": steady, "reversal": noisy})
+
+    def weight(method):
+        w = daily.with_row_index("_n").select(
+            *[
+                pl.when(pl.col("_n") >= 100)
+                .then(_expanding_weight(s, method).shift(1))
+                .alias(s)
+                for s in ("momentum", "reversal")
+            ]
+        )
+        return w.drop_nulls().tail(1).row(0, named=True)
+
+    means = weight("mean")
+    tstats = weight("tstat")
+    # Raw means are nearly equal; t-stats separate them by a wide margin.
+    assert abs(means["momentum"] - means["reversal"]) < 0.1
+    assert abs(tstats["momentum"]) > 5 * abs(tstats["reversal"])
+
+
+def test_unknown_weighting_method_is_rejected():
+    import pytest
+
+    with pytest.raises(ValueError, match="unknown weighting method"):
+        _expanding_weight("momentum", "magic")
