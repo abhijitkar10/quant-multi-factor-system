@@ -1,0 +1,194 @@
+# Build log
+
+## 2026-09-05 — Phases 0 and 1
+
+Scaffolded the repo and built the data block end to end. `uv run qmf phase1` now runs
+universe → prices → security matching → lake status, with an audit gate in the middle.
+
+### What exists
+
+| Module | Role |
+|---|---|
+| `qmf.config` | pydantic-settings; `QMF_`-prefixed env overrides so the same code runs local or on S3 |
+| `qmf.storage` | Delta read/write, versions, history, time travel |
+| `qmf.universe` | point-in-time membership intervals |
+| `qmf.data.loaders.base` | the loader contract: fetch → transform → audit → write |
+| `qmf.data.loaders.prices` | yfinance daily bars → tidy long panel |
+| `qmf.data.security_master` | OpenFIGI ticker → FIGI, SCD-2 shaped |
+| `qmf.data.audit` | statistical checks with critical/non-critical severity |
+| `qmf.cli` | typer CLI |
+
+31 tests, ruff clean.
+
+### Design decisions worth defending in an interview
+
+**Audit runs before the write, not after.** Auditing a published table means every
+downstream factor has already seen the bad data by the time anyone notices. A failing
+*critical* check raises `DataAuditError` and the table is never written — the feed halts
+instead of propagating. Non-critical checks (return outliers) warn without blocking, since
+real markets do produce genuine 50% moves.
+
+**Partition by year, not by date.** The obvious reading of "partition by date" gives ~3,900
+directories of tiny files over 15 years × 500 names. The metadata overhead of the
+small-file problem costs more than the extra partition pruning saves at this scale. Year
+partitions keep files in a sensible size range and date filters still prune well.
+
+**Membership is an interval, not a list.** `universe_as_of(d)` resolves `added <= d <
+removed`. Asking "what is in the universe" without a date is the single easiest way to
+introduce survivorship bias. `tickers_active_between(start, end)` is deliberately separate:
+ingestion must cover names that have *since* disappeared, or the backtest silently only
+ever sees survivors.
+
+**FIGI is the key, ticker is an attribute.** Tickers get reused and reassigned; FIGI does
+not. The security master is kept in SCD-2 shape (`valid_from`/`valid_to`) so a mapping is
+read as of a date rather than as "what is true today".
+
+### What real data broke (both genuinely useful findings)
+
+**1. Vendor ticker conventions disagree.** The first matching run came back 97.5%, with one
+failure: `BRK-B`. yfinance writes share classes with a dash; OpenFIGI and Bloomberg write
+`BRK/B`. Neither is wrong — they are different conventions for the same security, which is
+exactly why matching needs a translation layer rather than a string join. Fixed with a
+convention cascade: try OpenFIGI's spelling, retry anything unresolved with the ticker as
+we hold it. Match rate went to 100%.
+
+This is also a clean demonstration of Delta time travel — `security_master` version 0 has
+`BRK-B` unmatched and version 1 has it resolved, same table, same path:
+
+```
+security_master BEFORE the fix (version 0):  unmatched: ['BRK-B']
+security_master AFTER  the fix (version 1):  unmatched: []
+```
+
+**2. The coverage audit caught real survivorship bias.** Ingesting 2018→today for all 43
+seeded names returned only 41: yfinance has no history for `FRC` (First Republic, failed
+2023) or `TWTR` (acquired 2022). The audit flagged them by name at 95.35% coverage. That is
+a true positive, not a bug — it is the vendor telling us its history has been rewritten to
+exclude companies that stopped existing, which is precisely the bias the point-in-time
+universe is designed to expose. Left visible rather than papered over.
+
+### Next
+Phase 2 — signal library, alpha refinement, cross-sectional factor returns, and a
+Ledoit-Wolf shrunk factor covariance. See [feature-plan.md](feature-plan.md).
+
+## 2026-09-06 — ponytail audit applied, then Phase 2
+
+### Cuts (audit findings applied before adding anything)
+Deleted the six phase-stub modules (121 lines of prose in `.py` clothing), the `Loader` ABC
+with its single implementation, the `loaders/` package and its re-export facade, `LoadResult`,
+the `halt_on_audit_failure` flag nobody set, `read_delta`'s unused `as_of`/`columns` params,
+`security_master_as_of`, `settings.raw`, the `WriteMode` alias, `identity_ticker`, `_today()`,
+and `__version__`.
+
+Replaced with stdlib/native: `itertools.batched` for the hand-rolled OpenFIGI batching loop,
+`DeltaTable.is_deltatable` for the try/except existence check, `str` for `identity_ticker`,
+and plain module constants + `os.environ` for the pydantic-settings class.
+
+Dependencies: **13 → 9**. Dropped duckdb, pandera, scipy, statsmodels, scikit-learn, pydantic,
+pydantic-settings (all declared, none imported), plus four speculative optional-dep groups.
+`prices.py` became three functions instead of a class hierarchy.
+
+### Phase 2 — signals, alpha, factor returns
+One module, `qmf/factors.py`. Signals come from the price panel only: 12-1 momentum,
+one-month reversal, and trailing 60-day low-volatility. Value/size/quality need fundamentals
+we do not load, so they are not there yet.
+
+Each signal is z-scored cross-sectionally per date and winsorised at ±3; alpha is the
+equal-weight mean. Factor returns come from a per-date cross-sectional OLS of next-day
+return on the scores, and the factor covariance is the sample covariance.
+
+Two deliberate simplifications, both marked `ponytail:` in the source:
+- **Equal weights, not IC weights.** Weight by IC once there is a measured IC to weight by.
+- **Sample covariance, not Ledoit-Wolf.** With 3 factors and ~1,900 observations it is well
+  conditioned. Shrinkage earns its place when the factor count approaches the observation
+  count, not before.
+
+### First real result (2018→2026, 41 names)
+
+| signal | mean daily IC | factor return (ann.) | factor vol (ann.) |
+|---|---|---|---|
+| momentum | +0.0227 | +7.72% | 11.58% |
+| reversal | +0.0015 | +0.24% | 9.53% |
+| low_vol | −0.0096 | −7.61% | 13.07% |
+
+Only momentum carries information, and an IC of 0.023 is a realistic number — published
+equity signals live around 0.02–0.05, so this is neither broken nor too good to be true.
+Reversal is indistinguishable from noise. Low-vol is *negatively* paid over this window,
+which is what you would expect from a 41-name mega-cap universe across a growth-led bull
+market: the high-beta names led. None of this is a bug; it is the sample telling the truth.
+
+### Bug found by the tests
+`factor_returns` crashed on an empty result — `pl.DataFrame([])` has no columns, so `.sort("dt")`
+raised `ColumnNotFoundError`. Fixed with an explicit schema. The test that caught it was the
+one asserting dates with fewer names than factors get skipped.
+
+### Next
+Phase 3 — portfolio construction (cvxpy) and the transaction-cost model.
+
+## 2026-09-06 (later) — Phase 3: risk model, construction, costs, backtest
+
+One module, `qmf/portfolio.py`. No cvxpy: at 41 names a 41x41 solve is one numpy line, so
+the dependency has not earned its place yet.
+
+- **Risk model.** `V = B F B' + diag(d)` — exposures (the z-scores) times factor covariance,
+  plus specific variance from the regression residuals. This is the "980,000 numbers becomes
+  2,000" argument made concrete.
+- **Construction.** `w = V^-1 alpha`, projected onto the constraint set by iterating
+  demean → renormalise → cap to a fixed point. Dollar-neutral, gross 1, 5% position cap.
+- **Costs.** Linear: 1bp commission + 2bp half-spread on notional traded. Market impact is
+  deliberately absent — it is a function of participation rate, and a unit-notional book has
+  no capital base to be a fraction of.
+- **Backtest.** Monthly rebalance, weights held between dates, implementation shortfall
+  measured as paper-minus-real.
+
+### Three bugs, all caught by tests or by reading the result
+
+**1. Look-ahead in the backtest loop.** Weights set at date `i` were collecting date `i`'s
+own return. Fixed by accruing the day's return on the weights already held, *then*
+rebalancing at the close. The correction was material:
+
+| | IR | gross (ann.) | max DD |
+|---|---|---|---|
+| with look-ahead | −0.60 | −3.58% | −33.86% |
+| corrected | −0.02 | +0.24% | −19.46% |
+
+**2. `specific_risk` depended on a join *suffix*** that only appears when column names
+happen to collide. It worked on the real panel and broke on a synthetic one. Renamed the
+factor-return columns explicitly instead of relying on incidental overlap.
+
+**3. The position cap did not cap.** Clip-then-renormalise let the largest weight drift back
+above `max_weight`, and even after fixing that, returning the pre-clip vector on
+`np.allclose` convergence breached the limit by ~1e-6. A position limit is a hard
+constraint; it now returns the clipped vector.
+
+### IC weighting — added because the data asked for it
+The equal-weight alpha earned an IR of −0.02, which is exactly what you would predict from
+blending momentum (IC +0.023) with a dead signal and a negatively-paid one. That was the
+trigger condition named in the previous entry, so signals are now weighted by their measured
+IC — using an **expanding-window IC lagged one day**, with no weights at all until 252 days
+of evidence exist. Weighting by full-sample IC would be in-sample fitting: telling the
+backtest which signals worked using the very returns it is about to trade.
+
+| | IR | net (ann.) | turnover | max DD |
+|---|---|---|---|---|
+| equal weights | −0.02 | −0.13% | 1249% | −19.46% |
+| trailing-IC weights | **+0.66** | **+5.65%** | 533% | −11.27% |
+
+Turnover more than halved as well: IC weights are steadier than an equal blend of three
+noisy signals.
+
+### Is 0.66 believable?
+The fundamental law says IR ≈ IC × √breadth. With IC 0.023 and breadth ≈ 41 names × 12
+rebalances ≈ 492, that predicts IR ≈ 0.023 × 22 ≈ 0.51. Observed 0.66 is the same order —
+close enough to be consistent with theory rather than a bug, and far from the implausible
+numbers that signal a leak.
+
+**Caveats worth stating before this goes on a CV:** the 43-name seed universe is hand-picked
+and dominated by names that are large *today*, so the universe itself carries selection bias
+that no amount of point-in-time membership logic can remove. It is one sample period, and
+the choice of which three signals to build was made by someone who already knew momentum
+works in equities. The pipeline is honest; the experiment is still small.
+
+### Next
+Phase 4 proper — return attribution (factor vs specific vs cost). Phase 5 — Spark/Delta at
+scale. A real point-in-time constituent source would do more for credibility than either.

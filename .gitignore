@@ -1,0 +1,20 @@
+# data lake — never commit
+data/lake/
+data/raw/
+data/cache/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+uv.lock
+
+# notebooks
+.ipynb_checkpoints/
+
+# os
+.DS_Store
