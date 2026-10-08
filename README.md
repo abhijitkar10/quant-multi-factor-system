@@ -4,19 +4,23 @@ Recreates the institutional **multi-factor trading architecture** described in t
 *"What Nobody Tells You About Being a Quant"* (The Quant Insider) as a solo, laptop-scale
 project — a data-engineering + quant-finance portfolio piece.
 
-**Status:** Phases 0–4 built and running. 61 tests passing, 9 dependencies.
+**Status:** Phases 0–4 built and running. 62 tests passing, 9 dependencies.
 
 Universe is real point-in-time index membership reconstructed from Wikipedia revision
-history — 700 tickers, 503 current and 200 departed — so the backtest is not run on names
-selected with hindsight. Latest backtest over 604 names with price history:
-**IR 0.02, +0.15% net annualised.**
+history — 700 tickers, 503 current and 200 departed — and every factor score is masked to
+the dates a name was actually in the index. Latest backtest:
+**IR −0.15, −0.89% net annualised.** Held out from 2023: **IR 0.03.**
 
-That number was **0.66 on a hand-picked 41-name universe**. The difference was survivorship
-bias, and finding it is the point: see [docs/build-log.md](docs/build-log.md).
+That number has been corrected twice, and both corrections are the point of the project
+(see [docs/build-log.md](docs/build-log.md)):
 
-Over a held-out window (2023 onward) the same strategy scores IR 0.33 — a period effect, not
-skill. Both numbers are reported because quoting only the better one would repeat the
-selection mistake the universe fix corrected.
+| step | IR full | IR 2023+ | what was wrong |
+|---|---|---|---|
+| 41 hand-picked names | 0.66 | — | survivorship bias in the universe |
+| 700 point-in-time names | 0.02 | 0.33 | names scored in years *before* they joined the index |
+| membership enforced per row | **−0.15** | **0.03** | — |
+
+On an honest universe these three price signals have no tradable edge.
 
 ## Quickstart
 

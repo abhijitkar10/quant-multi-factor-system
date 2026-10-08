@@ -344,3 +344,46 @@ period-dependent.
 `--weighting tstat` stays, defaulting to `mean`. It is not speculative scaffolding: it is the
 apparatus that produced a documented negative result, and deleting it would make that claim
 unreproducible. Delete it if the finding ever stops mattering.
+
+## 2026-09-27 — the universe was only half-applied (IR 0.02 → −0.15)
+
+The universe rebuild decided **which tickers to download**, but nothing downstream asked
+**when** each ticker was a member. `factors.build` scored every name with a price on every
+date. So a company that joined the S&P 500 in 2024 was in the cross-section, and eligible
+to be held, from 2018 — selected, in effect, because it later grew enough to be added.
+That is survivorship bias again, re-entering through the price table.
+
+Size of it: **241,372 of 1,239,426 ticker-days (19.5%) were outside membership**, and 198
+membership intervals start after the backtest does.
+
+The fix is one join in the one place every consumer reads from: `universe.filter_members`,
+applied in `factors.build` after signals are computed and before the cross-sectional
+z-score. Signals still use each name's full price history — a lookback on prices that were
+public at the time is not look-ahead. Only *scoring* is restricted to member dates. The
+factor panel, IC, factor returns, specific risk and the backtest all read that panel, so
+all of them are corrected by it.
+
+| | before | after |
+|---|---|---|
+| panel rows | 1,239,426 | 998,054 |
+| IR, full 2018→2026 | 0.02 | **−0.15** |
+| IR, held out 2023+ | 0.33 | **0.03** |
+| net return (ann.) | +0.15% | −0.89% |
+| max drawdown | −15.00% | −18.35% |
+| momentum IC | +0.0202 | +0.0169 |
+
+The held-out 0.33, previously written up as "a period effect, not skill", was mostly this
+bug: the 2023+ window had the most late-joining names being scored before they joined. With
+membership enforced the held-out number is 0.03 — no edge in either window.
+
+Deliberately not tuned afterwards, for the same reason as last time.
+
+### Remaining limitation
+99 of the 700 tickers still have no price history. A large share are **ticker renames**
+(e.g. ABC → COR), where the company still trades under a new symbol and the history exists
+under it. They cannot be matched automatically from the membership data alone: a rename
+and an index replacement (ANSS removed, a different company added the same day) look
+identical there. That needs an identifier that survives a symbol change, such as the
+composite FIGI. Untested whether OpenFIGI resolves retired symbols at all; if it doesn't, the
+fallback is a short hand-verified rename list, each entry checked against the successor's
+history covering the old interval.

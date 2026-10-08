@@ -67,6 +67,23 @@ def filter_as_of(frame: pl.DataFrame, as_of: date) -> pl.DataFrame:
     ).sort("ticker")
 
 
+def filter_members(panel: pl.DataFrame, frame: pl.DataFrame) -> pl.DataFrame:
+    """Keep only the (ticker, dt) rows where the name was in the index on that date.
+
+    ``filter_as_of`` answers the question for one date; a panel needs it for every row at
+    once. Same inclusive/exclusive rule. A name with two intervals (removed, later re-added)
+    joins to two rows and keeps whichever one covers the date.
+    """
+    return (
+        panel.join(frame.select(["ticker", "added", "removed"]), on="ticker")
+        .filter(
+            (pl.col("added") <= pl.col("dt"))
+            & (pl.col("removed").is_null() | (pl.col("removed") > pl.col("dt")))
+        )
+        .drop(["added", "removed"])
+    )
+
+
 def filter_active_between(frame: pl.DataFrame, start: date, end: date) -> pl.DataFrame:
     """Names tradable at *any* point in ``[start, end]``."""
     return frame.filter(

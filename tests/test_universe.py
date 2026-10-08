@@ -68,3 +68,38 @@ def test_as_of_equals_a_degenerate_window(d: date):
 @given(st.dates(min_value=date(2010, 1, 1), max_value=date(2035, 1, 1)))
 def test_membership_is_never_larger_than_the_seed(d: date):
     assert filter_as_of(frame(), d).height <= frame().height
+
+
+def test_panel_rows_outside_membership_are_dropped():
+    """The universe fix only works if the factor panel honours it on every row."""
+    from qmf.universe import filter_members
+
+    uni = pl.DataFrame(
+        {
+            "ticker": ["LATE", "BACK", "BACK"],
+            "added": [ADDED_LATE, date(2018, 1, 1), date(2021, 1, 1)],
+            "removed": [None, date(2019, 1, 1), None],
+        },
+        schema={"ticker": pl.Utf8, "added": pl.Date, "removed": pl.Date},
+    )
+    panel = pl.DataFrame(
+        {
+            "ticker": ["LATE", "LATE", "BACK", "BACK", "BACK", "GONE"],
+            "dt": [
+                date(2019, 6, 1),
+                ADDED_LATE,
+                date(2018, 6, 1),
+                date(2020, 1, 1),
+                date(2022, 1, 1),
+                date(2022, 1, 1),
+            ],
+        }
+    )
+    kept = filter_members(panel, uni).sort(["ticker", "dt"]).rows()
+    # LATE before joining, BACK in its gap, and a never-member are all dropped;
+    # a re-added name is kept in both intervals, once each.
+    assert kept == [
+        ("BACK", date(2018, 6, 1)),
+        ("BACK", date(2022, 1, 1)),
+        ("LATE", ADDED_LATE),
+    ]

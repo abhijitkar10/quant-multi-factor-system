@@ -15,6 +15,7 @@ import numpy as np
 import polars as pl
 
 from qmf.storage import read_delta, write_delta
+from qmf.universe import filter_members
 
 SIGNALS = ["momentum", "reversal", "low_vol"]
 TABLE = "factors"
@@ -164,8 +165,16 @@ def covariance(rets: pl.DataFrame, signals: list[str] = SIGNALS) -> np.ndarray:
 
 
 def build(method: str = "mean") -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
-    """Read prices, publish the factor panel and factor returns, return (panel, rets, ic)."""
-    scored = zscore(compute_signals(read_delta("prices_daily")))
+    """Read prices, publish the factor panel and factor returns, return (panel, rets, ic).
+
+    Signals use each name's full price history — a lookback on prices that were public at
+    the time is not look-ahead. But a name is only *scored* on dates it was in the index.
+    Without that mask the cross-section includes companies years before they joined, i.e.
+    names picked because they later grew: survivorship bias re-entering through the price
+    table after the universe rebuild had removed it.
+    """
+    signals = filter_members(compute_signals(read_delta("prices_daily")), read_delta("universe"))
+    scored = zscore(signals)
     panel = add_alpha(scored, trailing_ic(scored, method=method))
     rets = factor_returns(panel)
 
