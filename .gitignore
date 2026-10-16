@@ -18,3 +18,4 @@ uv.lock
 
 # os
 .DS_Store
+.knowledge-graph/

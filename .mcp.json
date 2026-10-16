@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "knowledge-graph": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [
+        "/Users/abhijitkar/quant-multi-factor-system/.claude/skills/knowledge-graph/scripts/mcp-server.sh"
+      ],
+      "env": {
+        "KG_PROJECT_DIR": "/Users/abhijitkar/quant-multi-factor-system"
+      }
+    }
+  }
+}
